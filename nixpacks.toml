@@ -1,8 +1,14 @@
 [phases.setup]
-nixPkgs = ["chromium", "chromedriver", "tesseract", "python311"]
- 
+nixPkgs = ["chromium", "chromium-chromedriver", "tesseract", "python313"]
+
 [phases.install]
 cmds = ["pip install -r requirements.txt"]
- 
+
+[phases.build]
+cmds = [
+  "echo CHROME_BIN=$(which chromium) >> /app/.env.railway",
+  "echo CHROMEDRIVER_BIN=$(which chromedriver) >> /app/.env.railway"
+]
+
 [start]
-cmd = "gunicorn app:app --bind 0.0.0.0:$PORT --timeout 120 --workers 1"
+cmd = "set -a && [ -f /app/.env.railway ] && . /app/.env.railway && set +a && gunicorn app:app --bind 0.0.0.0:$PORT --timeout 120 --workers 1"

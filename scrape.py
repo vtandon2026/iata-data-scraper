@@ -10,6 +10,7 @@ are calibrated from real pixel sampling — not guessed from histograms.
 """
 
 import time
+import logging
 import shutil
 import platform
 import os
@@ -37,6 +38,7 @@ def _setup_tesseract():
         )
 
 _setup_tesseract()
+log = logging.getLogger(__name__)
 
 # ── IATA image URLs (confirmed from page source) ──────────────────────────────
 IATA_URL   = "https://www.iata.org/en/publications/economics/fuel-monitor/"
@@ -102,32 +104,37 @@ def _get_driver():
         "user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
         "AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36"
     )
-    # Detect the Chrome/Chromium binary in order of preference:
-    #   1. CHROME_BIN env var (set manually on Render)
-    #   2. Railway Nix: chromium is at /nix/var/nix/.../bin/chromium
-    #      but shutil.which("chromium") finds it automatically
-    #   3. Standard Linux path /usr/bin/google-chrome (Render build.sh)
-    #   4. Local: let webdriver-manager handle it
+    # Locate Chrome and Chromedriver — prefer system binaries (Railway/Render)
+    # over webdriver-manager downloads. webdriver-manager gets an old version
+    # that doesn't match the system Chrome, causing status code 127.
 
-    chrome_bin       = os.environ.get("CHROME_BIN")
-    chromedriver_bin = os.environ.get("CHROMEDRIVER_BIN")
-
+    # 1. Chrome / Chromium binary
+    chrome_bin = os.environ.get("CHROME_BIN")
     if not chrome_bin:
-        for candidate in ("chromium", "chromium-browser", "google-chrome"):
+        for candidate in ("chromium", "chromium-browser",
+                          "google-chrome", "google-chrome-stable"):
             found = shutil.which(candidate)
             if found:
                 chrome_bin = found
+                log.info(f"Found Chrome at: {found}")
                 break
 
     if chrome_bin:
         opts.binary_location = chrome_bin
+    else:
+        log.warning("No system Chrome found — falling back to webdriver-manager")
 
+    # 2. Chromedriver — must match the Chrome binary above
+    chromedriver_bin = os.environ.get("CHROMEDRIVER_BIN")
     if not chromedriver_bin:
         chromedriver_bin = shutil.which("chromedriver")
+        if chromedriver_bin:
+            log.info(f"Found chromedriver at: {chromedriver_bin}")
 
     if chromedriver_bin:
         svc = Service(chromedriver_bin)
     else:
+        log.warning("No system chromedriver — using webdriver-manager (may version-mismatch)")
         svc = Service(ChromeDriverManager().install())
 
     return webdriver.Chrome(service=svc, options=opts)
