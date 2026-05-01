@@ -106,5 +106,9 @@ def _sheet_info() -> dict:
 
 
 if __name__ == "__main__":
+    import os as _os
     WORKBOOK_PATH.parent.mkdir(parents=True, exist_ok=True)
-    app.run(debug=True, port=5050)
+    port = int(_os.environ.get("PORT", 5050))
+    # debug=True only locally; on Railway PORT env var is set
+    debug = not _os.environ.get("PORT")
+    app.run(host="0.0.0.0", port=port, debug=debug)

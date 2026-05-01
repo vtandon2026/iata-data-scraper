@@ -83,7 +83,6 @@ def _get_driver():
     from selenium import webdriver
     from selenium.webdriver.chrome.service import Service
     from selenium.webdriver.chrome.options import Options
-    from webdriver_manager.chrome import ChromeDriverManager
 
     opts = Options()
     opts.add_argument("--headless=new")
@@ -104,40 +103,33 @@ def _get_driver():
         "user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
         "AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36"
     )
-    # Locate Chrome and Chromedriver — prefer system binaries (Railway/Render)
-    # over webdriver-manager downloads. webdriver-manager gets an old version
-    # that doesn't match the system Chrome, causing status code 127.
 
-    # 1. Chrome / Chromium binary
+    # Chrome binary — env var wins, then PATH search, then error
     chrome_bin = os.environ.get("CHROME_BIN")
     if not chrome_bin:
-        for candidate in ("chromium", "chromium-browser",
-                          "google-chrome", "google-chrome-stable"):
-            found = shutil.which(candidate)
+        for name in ("google-chrome", "google-chrome-stable",
+                     "chromium", "chromium-browser"):
+            found = shutil.which(name)
             if found:
                 chrome_bin = found
-                log.info(f"Found Chrome at: {found}")
                 break
+    if not chrome_bin:
+        raise RuntimeError(
+            "Chrome not found. Set CHROME_BIN env var or install google-chrome."
+        )
+    opts.binary_location = chrome_bin
+    log.info(f"Chrome: {chrome_bin}")
 
-    if chrome_bin:
-        opts.binary_location = chrome_bin
-    else:
-        log.warning("No system Chrome found — falling back to webdriver-manager")
+    # Chromedriver — env var wins, then PATH, then error
+    # Never use webdriver-manager: it downloads old v114 which mismatches system Chrome
+    cd_bin = os.environ.get("CHROMEDRIVER_BIN") or shutil.which("chromedriver")
+    if not cd_bin:
+        raise RuntimeError(
+            "chromedriver not found. Set CHROMEDRIVER_BIN env var or install chromedriver."
+        )
+    log.info(f"Chromedriver: {cd_bin}")
 
-    # 2. Chromedriver — must match the Chrome binary above
-    chromedriver_bin = os.environ.get("CHROMEDRIVER_BIN")
-    if not chromedriver_bin:
-        chromedriver_bin = shutil.which("chromedriver")
-        if chromedriver_bin:
-            log.info(f"Found chromedriver at: {chromedriver_bin}")
-
-    if chromedriver_bin:
-        svc = Service(chromedriver_bin)
-    else:
-        log.warning("No system chromedriver — using webdriver-manager (may version-mismatch)")
-        svc = Service(ChromeDriverManager().install())
-
-    return webdriver.Chrome(service=svc, options=opts)
+    return webdriver.Chrome(service=Service(cd_bin), options=opts)
 
 
 def _fetch_image(driver, url: str) -> bytes:
