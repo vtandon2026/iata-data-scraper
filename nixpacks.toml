@@ -11,8 +11,8 @@ cmds = [
   "wget -q https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb -O /tmp/chrome.deb",
   "apt-get install -y /tmp/chrome.deb",
   "rm /tmp/chrome.deb",
-  "CHROME_VER=$(google-chrome --version | grep -oP '[0-9]+\\.[0-9]+\\.[0-9]+\\.[0-9]+' | head -1) && echo \"Chrome version: $CHROME_VER\" && wget -q https://storage.googleapis.com/chrome-for-testing-public/${CHROME_VER}/linux64/chromedriver-linux64.zip -O /tmp/cd.zip && unzip -q /tmp/cd.zip -d /tmp && mv /tmp/chromedriver-linux64/chromedriver /usr/local/bin/chromedriver && chmod +x /usr/local/bin/chromedriver && rm -rf /tmp/cd.zip /tmp/chromedriver-linux64 && echo \"Chromedriver installed: $(chromedriver --version)\""
+  "CHROME_VER=$(google-chrome --version | grep -oP '[0-9]+\\.[0-9]+\\.[0-9]+\\.[0-9]+' | head -1) && echo \"Chrome: $CHROME_VER\" && wget -q https://storage.googleapis.com/chrome-for-testing-public/${CHROME_VER}/linux64/chromedriver-linux64.zip -O /tmp/cd.zip && unzip -q /tmp/cd.zip -d /tmp && mv /tmp/chromedriver-linux64/chromedriver /usr/local/bin/chromedriver && chmod +x /usr/local/bin/chromedriver && rm -rf /tmp/cd.zip /tmp/chromedriver-linux64 && echo \"Chromedriver: $(chromedriver --version)\""
 ]
 
 [start]
-cmd = "gunicorn app:app --bind 0.0.0.0:$PORT --timeout 120 --workers 1"
+cmd = "python3 -m gunicorn app:app --bind 0.0.0.0:$PORT --timeout 120 --workers 1"
