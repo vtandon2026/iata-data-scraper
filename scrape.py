@@ -102,7 +102,34 @@ def _get_driver():
         "user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
         "AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36"
     )
-    svc = Service(ChromeDriverManager().install())
+    # Detect the Chrome/Chromium binary in order of preference:
+    #   1. CHROME_BIN env var (set manually on Render)
+    #   2. Railway Nix: chromium is at /nix/var/nix/.../bin/chromium
+    #      but shutil.which("chromium") finds it automatically
+    #   3. Standard Linux path /usr/bin/google-chrome (Render build.sh)
+    #   4. Local: let webdriver-manager handle it
+
+    chrome_bin       = os.environ.get("CHROME_BIN")
+    chromedriver_bin = os.environ.get("CHROMEDRIVER_BIN")
+
+    if not chrome_bin:
+        for candidate in ("chromium", "chromium-browser", "google-chrome"):
+            found = shutil.which(candidate)
+            if found:
+                chrome_bin = found
+                break
+
+    if chrome_bin:
+        opts.binary_location = chrome_bin
+
+    if not chromedriver_bin:
+        chromedriver_bin = shutil.which("chromedriver")
+
+    if chromedriver_bin:
+        svc = Service(chromedriver_bin)
+    else:
+        svc = Service(ChromeDriverManager().install())
+
     return webdriver.Chrome(service=svc, options=opts)
 
 
