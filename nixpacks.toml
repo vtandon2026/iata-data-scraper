@@ -1,14 +1,16 @@
 [phases.setup]
-nixPkgs = ["chromium", "chromium-chromedriver", "tesseract", "python313"]
+nixPkgs = ["python313", "tesseract"]
 
 [phases.install]
-cmds = ["pip install -r requirements.txt"]
-
-[phases.build]
 cmds = [
-  "echo CHROME_BIN=$(which chromium) >> /app/.env.railway",
-  "echo CHROMEDRIVER_BIN=$(which chromedriver) >> /app/.env.railway"
+  "apt-get update -qq",
+  "apt-get install -y -qq wget gnupg2 unzip curl",
+  "wget -q https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb",
+  "apt-get install -y -qq ./google-chrome-stable_current_amd64.deb",
+  "rm google-chrome-stable_current_amd64.deb",
+  "CHROME_VER=$(google-chrome --version | grep -oP '[0-9]+\\.[0-9]+\\.[0-9]+' | head -1) && wget -q \"https://storage.googleapis.com/chrome-for-testing-public/${CHROME_VER}/linux64/chromedriver-linux64.zip\" -O /tmp/cd.zip && unzip -q /tmp/cd.zip -d /tmp && mv /tmp/chromedriver-linux64/chromedriver /usr/local/bin/chromedriver && chmod +x /usr/local/bin/chromedriver",
+  "pip install -r requirements.txt"
 ]
 
 [start]
-cmd = "set -a && [ -f /app/.env.railway ] && . /app/.env.railway && set +a && gunicorn app:app --bind 0.0.0.0:$PORT --timeout 120 --workers 1"
+cmd = "gunicorn app:app --bind 0.0.0.0:$PORT --timeout 120 --workers 1"
