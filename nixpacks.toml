@@ -1,7 +1,7 @@
 [phases.setup]
 nixPkgs = ["python313", "tesseract"]
 aptPkgs = ["wget", "gnupg2", "unzip", "curl",
-           "libglib2.0-0", "libnss3", "libgconf-2-4",
+           "libglib2.0-0", "libnss3",
            "libfontconfig1", "libxcb1", "libx11-6"]
 
 [phases.install]
