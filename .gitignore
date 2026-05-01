@@ -32,3 +32,8 @@ desktop.ini
 .idea/
 *.suo
 *.user
+
+# ── Render build artefacts ──────────────────────────────────────────────────
+*.deb
+chromedriver.zip
+chromedriver-linux64/
