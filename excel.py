@@ -7,35 +7,17 @@ Workbook structure
 ------------------
   Sheet "Consolidated T1"  ← ALWAYS first; accumulates Table 1 across all downloads
   Sheet "Consolidated T2"  ← ALWAYS second; accumulates Table 2 across all downloads
-  Sheet "YYYY-MM-DD HH.MM" ← snapshot of this download (both tables, existing behaviour)
+  Sheet "YYYY-MM-DD HH.MM" ← snapshot of this download (both tables)
   Sheet "YYYY-MM-DD HH.MM" ← next download snapshot …
 
-Consolidated sheets layout
----------------------------
-  Column A  : "Extraction Date" — the datetime when that block was downloaded.
-              Filled only on the first data row of each block; blank for the rest.
-  Columns B+ : exactly the same columns as the original table (headers repeat
-              at the top of every new block so each block is self-contained).
-
-  First download:
-    Row 1  : header  (Extraction Date | col1 | col2 | …)
-    Row 2  : data row 1   ← "2026-04-30 16.45" in col A
-    Row 3  : data row 2   ← blank in col A
-    …
-
-  Second download (data changed):
-    (blank spacer row)
-    Row N  : header  (Extraction Date | col1 | col2 | …)
-    Row N+1: data row 1   ← "2026-05-06 16.12" in col A
-    …
-
-Duplicate detection
--------------------
-  If the scraped data is identical to the last download, no new snapshot sheet
-  is created and the consolidated sheets are NOT appended to (no duplicate blocks).
+build_or_update() works entirely in memory:
+  - Accepts existing workbook as raw bytes (or None for first run)
+  - Returns updated workbook as raw bytes
+  - Never reads/writes files directly (caller handles storage)
 """
 
 import hashlib
+import io
 import json
 from datetime import datetime
 from pathlib import Path
@@ -51,12 +33,15 @@ C_BLUE      = "2E4DA7"
 C_PALE_BG   = "C5D1EB"
 C_IDX_DATA  = "DCE6F1"
 C_ALT_ROW   = "F2F2F2"
-C_DATE_BG   = "E8F0FE"   # pale blue tint for Extraction Date column
+C_DATE_BG   = "E8F0FE"
 C_WHITE     = "FFFFFF"
 C_BLACK     = "000000"
 C_BORDER    = "BFBFBF"
 
-WORKBOOK_PATH   = Path("workbooks") / "iata_fuel_tables.xlsx"
+# Used by app.py for local disk storage path
+import os as _os
+_wb_dir = _os.environ.get("WORKBOOK_DIR", "workbooks")
+WORKBOOK_PATH   = Path(_wb_dir) / "iata_fuel_tables.xlsx"
 SHEET_CONSOL_T1 = "Consolidated T1"
 SHEET_CONSOL_T2 = "Consolidated T2"
 
@@ -89,17 +74,11 @@ def _hdr(ws, r, c, text, bg, fg=C_WHITE, wrap=True):
     _cell(ws, r, c, text, bold=True, bg=bg, fg=fg, h_align="center", wrap=wrap)
 
 
-# ── Snapshot: Table 1 (cols 1-9) ─────────────────────────────────────────────
+# ── Table 1 writer ────────────────────────────────────────────────────────────
 def _write_table1(ws, rows, start_row, col_offset=0):
-    """
-    Write Table 1 starting at start_row.
-    col_offset: shift all columns right by this many (used in snapshot sheet = 0).
-    Returns last written row.
-    """
     r  = start_row
-    c0 = col_offset  # 0 for snapshot, 1 for consolidated (col A = extraction date)
+    c0 = col_offset
 
-    # Super-header row 1
     ws.merge_cells(start_row=r, start_column=1+c0, end_row=r+1, end_column=1+c0)
     _hdr(ws, r, 1+c0, "Week ending\n/ Region", C_NAVY)
 
@@ -115,7 +94,6 @@ def _write_table1(ws, rows, start_row, col_offset=0):
     ws.merge_cells(start_row=r, start_column=7+c0, end_row=r, end_column=9+c0)
     _hdr(ws, r, 7+c0, "Weekly Average Price versus", C_PALE_BG, fg=C_BLACK)
 
-    # Sub-header row 2
     r += 1
     for c in (1+c0, 2+c0, 6+c0):
         ws.cell(row=r, column=c).border = _border()
@@ -126,7 +104,6 @@ def _write_table1(ws, rows, start_row, col_offset=0):
     _hdr(ws, r, 8+c0, "prior month's\naverage", C_PALE_BG, fg=C_BLACK)
     _hdr(ws, r, 9+c0, "prior year's\naverage",  C_PALE_BG, fg=C_BLACK)
 
-    # Data rows
     for di, row in enumerate(rows):
         r += 1
         padded     = (row + [""] * 9)[:9]
@@ -150,12 +127,8 @@ def _write_table1(ws, rows, start_row, col_offset=0):
     return r
 
 
-# ── Snapshot: Table 2 (cols 1-5) ─────────────────────────────────────────────
+# ── Table 2 writer ────────────────────────────────────────────────────────────
 def _write_table2(ws, rows, start_row, col_offset=0):
-    """
-    Write Table 2. col_offset same as _write_table1.
-    Returns last written row.
-    """
     r  = start_row
     c0 = col_offset
 
@@ -180,59 +153,43 @@ def _write_table2(ws, rows, start_row, col_offset=0):
 
 # ── Column sizing ─────────────────────────────────────────────────────────────
 def _size_snapshot(ws):
-    """Column widths for a snapshot sheet (no col A date column)."""
     for col, w in {1:26, 2:10, 3:11, 4:10, 5:12, 6:14, 7:12, 8:12, 9:12}.items():
         ws.column_dimensions[get_column_letter(col)].width = w
     ws.row_dimensions[1].height = 38
     ws.row_dimensions[2].height = 28
 
 def _size_consol_t1(ws):
-    """Column widths for consolidated T1 (col A = date, then 9 data cols)."""
-    ws.column_dimensions["A"].width = 18   # Extraction Date
+    ws.column_dimensions["A"].width = 18
     for col, w in {2:26, 3:10, 4:11, 5:10, 6:12, 7:14, 8:12, 9:12, 10:12}.items():
         ws.column_dimensions[get_column_letter(col)].width = w
 
 def _size_consol_t2(ws):
-    """Column widths for consolidated T2 (col A = date, then 5 data cols)."""
     ws.column_dimensions["A"].width = 18
     for col, w in {2:20, 3:14, 4:14, 5:13, 6:16}.items():
         ws.column_dimensions[get_column_letter(col)].width = w
 
 
-# ── Consolidated sheet updater ────────────────────────────────────────────────
+# ── Consolidated sheet updaters ───────────────────────────────────────────────
 def _next_empty_row(ws) -> int:
-    """Return the first fully empty row after all existing data."""
     return ws.max_row + 1 if ws.max_row and ws.max_row > 0 else 1
 
 
 def _append_to_consolidated_t1(ws, rows, extraction_date: str):
-    """
-    Append a new Table-1 block to the consolidated sheet.
-    Layout:
-      - If sheet is empty: write col-A header then data block (col_offset=1).
-      - If sheet has data: blank spacer row, then new data block.
-    Col A header = "Extraction Date"; filled only on first data row of each block.
-    """
     is_empty = ws.max_row <= 1 and not any(
         ws.cell(1, c).value for c in range(1, 12)
     )
-
     if is_empty:
-        # Write "Extraction Date" column header
         _hdr(ws, 1, 1, "Extraction\nDate", C_NAVY)
         ws.row_dimensions[1].height = 38
         ws.row_dimensions[2].height = 28
         start = 1
     else:
-        # Blank spacer row then start new block
         spacer = _next_empty_row(ws)
         ws.row_dimensions[spacer].height = 8
         start = spacer + 1
 
-    # Write table headers (col_offset=1 shifts data to cols B-J)
     last = _write_table1(ws, rows, start_row=start, col_offset=1)
 
-    # Merge col A across all data rows of this block (T1 has 2 header rows)
     first_data_row = start + 2
     if last >= first_data_row:
         ws.merge_cells(start_row=first_data_row, start_column=1,
@@ -244,11 +201,9 @@ def _append_to_consolidated_t1(ws, rows, extraction_date: str):
 
 
 def _append_to_consolidated_t2(ws, rows, extraction_date: str):
-    """Append a new Table-2 block to the consolidated sheet."""
     is_empty = ws.max_row <= 1 and not any(
         ws.cell(1, c).value for c in range(1, 7)
     )
-
     if is_empty:
         _hdr(ws, 1, 1, "Extraction\nDate", C_NAVY)
         ws.row_dimensions[1].height = 38
@@ -260,7 +215,6 @@ def _append_to_consolidated_t2(ws, rows, extraction_date: str):
 
     last = _write_table2(ws, rows, start_row=start, col_offset=1)
 
-    # Merge col A across all data rows of this block (T2 has 1 header row)
     first_data_row = start + 1
     if last >= first_data_row:
         ws.merge_cells(start_row=first_data_row, start_column=1,
@@ -277,8 +231,6 @@ def _data_hash(t1, t2) -> str:
     return hashlib.sha256(raw.encode()).hexdigest()[:16]
 
 def _last_hash(wb) -> str | None:
-    """Read hash stored in a hidden cell on the last snapshot sheet."""
-    # Snapshot sheets are all sheets except the two consolidated ones
     snapshots = [s for s in wb.sheetnames
                  if s not in (SHEET_CONSOL_T1, SHEET_CONSOL_T2)]
     if not snapshots:
@@ -295,42 +247,42 @@ def _stash_hash(ws, h: str):
 
 # ── Public API ────────────────────────────────────────────────────────────────
 def build_or_update(t1_rows: list[list[str]],
-                    t2_rows: list[list[str]]) -> tuple[Path, bool, str]:
+                    t2_rows: list[list[str]],
+                    existing_bytes: bytes | None = None
+                    ) -> tuple[bytes, bool, str]:
     """
-    Create workbook (first call) or append a sheet (subsequent calls).
+    Create or update the workbook entirely in memory.
 
-    Workbook always has:
-      • "Consolidated T1"  at position 0
-      • "Consolidated T2"  at position 1
-      • Snapshot sheets    appended after
+    Parameters
+    ----------
+    t1_rows        : scraped Table 1 rows
+    t2_rows        : scraped Table 2 rows
+    existing_bytes : raw bytes of existing workbook, or None for first run
 
-    Returns: (workbook_path, is_duplicate, sheet_name)
+    Returns
+    -------
+    (workbook_bytes, is_duplicate, sheet_name)
     """
-    WORKBOOK_PATH.parent.mkdir(parents=True, exist_ok=True)
-
     current_hash  = _data_hash(t1_rows, t2_rows)
     sheet_name    = datetime.now().strftime("%Y-%m-%d %H.%M")
     extraction_dt = datetime.now().strftime("%Y-%m-%d %H:%M")
 
     # ── Load or create workbook ───────────────────────────────────────────────
-    if WORKBOOK_PATH.exists():
-        wb = load_workbook(WORKBOOK_PATH)
+    if existing_bytes:
+        wb = load_workbook(io.BytesIO(existing_bytes))
 
-        # Duplicate check against last snapshot
         if _last_hash(wb) == current_hash:
             snapshots  = [s for s in wb.sheetnames
                           if s not in (SHEET_CONSOL_T1, SHEET_CONSOL_T2)]
             last_sheet = snapshots[-1] if snapshots else sheet_name
             wb.close()
-            return WORKBOOK_PATH, True, last_sheet
-
+            return existing_bytes, True, last_sheet
     else:
         wb = Workbook()
-        # Remove default empty sheet
         if "Sheet" in wb.sheetnames:
             del wb["Sheet"]
 
-    # ── Ensure consolidated sheets exist at positions 0 and 1 ─────────────────
+    # ── Ensure consolidated sheets exist ──────────────────────────────────────
     if SHEET_CONSOL_T1 not in wb.sheetnames:
         wb.create_sheet(title=SHEET_CONSOL_T1, index=0)
     if SHEET_CONSOL_T2 not in wb.sheetnames:
@@ -342,7 +294,6 @@ def build_or_update(t1_rows: list[list[str]],
 
     # ── Create snapshot sheet ─────────────────────────────────────────────────
     ws = wb.create_sheet(title=sheet_name)
-
     last_t1 = _write_table1(ws, t1_rows, start_row=1, col_offset=0)
     spacer  = last_t1 + 1
     ws.row_dimensions[spacer].height = 8
@@ -350,7 +301,9 @@ def build_or_update(t1_rows: list[list[str]],
     _size_snapshot(ws)
     _stash_hash(ws, current_hash)
 
-    wb.save(WORKBOOK_PATH)
+    # ── Serialise to bytes ────────────────────────────────────────────────────
+    buf = io.BytesIO()
+    wb.save(buf)
     wb.close()
-
-    return WORKBOOK_PATH, False, sheet_name
+    buf.seek(0)
+    return buf.read(), False, sheet_name
