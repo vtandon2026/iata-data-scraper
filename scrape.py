@@ -102,19 +102,7 @@ def _get_driver():
         "user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
         "AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36"
     )
-    # On Render (Linux), Chrome is installed at a known path via the build script.
-    # On Windows/Mac (local), webdriver-manager auto-downloads the right chromedriver.
-    chrome_bin = os.environ.get("CHROME_BIN")
-    chromedriver_bin = os.environ.get("CHROMEDRIVER_BIN")
-
-    if chrome_bin:
-        opts.binary_location = chrome_bin
-
-    if chromedriver_bin:
-        svc = Service(chromedriver_bin)
-    else:
-        svc = Service(ChromeDriverManager().install())
-
+    svc = Service(ChromeDriverManager().install())
     return webdriver.Chrome(service=svc, options=opts)
 
 

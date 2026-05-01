@@ -56,10 +56,7 @@ C_WHITE     = "FFFFFF"
 C_BLACK     = "000000"
 C_BORDER    = "BFBFBF"
 
-# On Render use the persistent disk at /data; locally use workbooks/
-import os as _os
-_wb_dir = _os.environ.get("WORKBOOK_DIR", "workbooks")
-WORKBOOK_PATH   = Path(_wb_dir) / "iata_fuel_tables.xlsx"
+WORKBOOK_PATH   = Path("workbooks") / "iata_fuel_tables.xlsx"
 SHEET_CONSOL_T1 = "Consolidated T1"
 SHEET_CONSOL_T2 = "Consolidated T2"
 
