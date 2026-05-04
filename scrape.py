@@ -104,32 +104,50 @@ def _get_driver():
         "AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36"
     )
 
-    # Chrome binary — env var wins, then PATH search, then error
+    # ── Chrome binary ────────────────────────────────────────────────────────
+    # Priority: CHROME_BIN env var → PATH search → Windows default paths
     chrome_bin = os.environ.get("CHROME_BIN")
+
     if not chrome_bin:
         for name in ("google-chrome", "google-chrome-stable",
                      "chromium", "chromium-browser"):
             found = shutil.which(name)
             if found:
                 chrome_bin = found
+                log.info(f"Auto-detected Chrome: {found}")
                 break
-    if not chrome_bin:
-        raise RuntimeError(
-            "Chrome not found. Set CHROME_BIN env var or install google-chrome."
-        )
-    opts.binary_location = chrome_bin
-    log.info(f"Chrome: {chrome_bin}")
 
-    # Chromedriver — env var wins, then PATH, then error
-    # Never use webdriver-manager: it downloads old v114 which mismatches system Chrome
+    if not chrome_bin and platform.system() == "Windows":
+        win_paths = [
+            r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+            r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
+            os.path.expanduser(
+                r"~\AppData\Local\Google\Chrome\Application\chrome.exe"
+            ),
+        ]
+        for p in win_paths:
+            if os.path.isfile(p):
+                chrome_bin = p
+                log.info(f"Found Chrome (Windows): {p}")
+                break
+
+    if chrome_bin:
+        opts.binary_location = chrome_bin
+
+    # ── Chromedriver ─────────────────────────────────────────────────────────
+    # On Railway: CHROMEDRIVER_BIN env var is set pointing to system chromedriver.
+    # On local Windows/Mac: fall back to webdriver-manager (auto-downloads).
     cd_bin = os.environ.get("CHROMEDRIVER_BIN") or shutil.which("chromedriver")
-    if not cd_bin:
-        raise RuntimeError(
-            "chromedriver not found. Set CHROMEDRIVER_BIN env var or install chromedriver."
-        )
-    log.info(f"Chromedriver: {cd_bin}")
 
-    return webdriver.Chrome(service=Service(cd_bin), options=opts)
+    if cd_bin:
+        log.info(f"Using chromedriver: {cd_bin}")
+        svc = Service(cd_bin)
+    else:
+        log.info("Using webdriver-manager to download chromedriver")
+        from webdriver_manager.chrome import ChromeDriverManager
+        svc = Service(ChromeDriverManager().install())
+
+    return webdriver.Chrome(service=svc, options=opts)
 
 
 def _fetch_image(driver, url: str) -> bytes:
